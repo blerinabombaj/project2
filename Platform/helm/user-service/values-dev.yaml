@@ -1,4 +1,4 @@
 image:
-  repository: REPLACE_WITH_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/platform/user-service
+  repository: 444062204470.dkr.ecr.us-east-1.amazonaws.com/platform/user-service
   tag: latest
 replicaCount: 1
