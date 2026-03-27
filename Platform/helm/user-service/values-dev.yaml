@@ -1,4 +1,4 @@
 image:
   repository: 444062204470.dkr.ecr.us-east-1.amazonaws.com/platform/user-service
-  tag: latest
+  tag: test
 replicaCount: 1
