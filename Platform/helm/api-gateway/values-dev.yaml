@@ -4,7 +4,7 @@
 
 image:
   repository: 444062204470.dkr.ecr.us-east-1.amazonaws.com/platform/api-gateway
-  tag: latest
+  tag: test
 
 replicaCount: 1
 
