@@ -53,6 +53,7 @@ spec:
                 - "dev"
                 - "staging"
                 - "prod"
+                - "dev"
       validate:
         message: >
           Image '{{ request.object.spec.containers[].image }}' is not from

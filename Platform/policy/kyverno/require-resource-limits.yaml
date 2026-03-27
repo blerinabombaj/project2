@@ -20,6 +20,7 @@ spec:
           - kyverno
           - kube-system
           - argocd
+          - dev
     match:
       any:
         - resources:

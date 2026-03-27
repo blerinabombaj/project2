@@ -1,4 +1,4 @@
-"""
+cat apps/order-service/main.py | grep -i orders-db"""
 Order Service — owns everything about orders.
 
 Key behaviour that makes this project interesting from an infrastructure
