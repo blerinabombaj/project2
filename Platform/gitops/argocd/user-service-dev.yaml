@@ -11,9 +11,9 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/YOUR_USERNAME/platform
+    repoURL: https://github.com/blerinabombaj/project2
     targetRevision: main
-    path: helm/user-service
+    path: Platform/helm/user-service
     helm:
       valueFiles:
         - values.yaml

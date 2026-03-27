@@ -1,10 +1,10 @@
 image:
-  repository: REPLACE_WITH_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/platform/order-service
+  repository: 444062204470.dkr.ecr.us-east-1.amazonaws.com/platform/order-service
   tag: latest
 replicaCount: 2
 serviceAccount:
   annotations:
-    eks.amazonaws.com/role-arn: arn:aws:iam::REPLACE_WITH_ACCOUNT_ID:role/order-service-secrets-role
+    eks.amazonaws.com/role-arn: arn:aws:iam::444062204470:role/order-service-secrets-role
 autoscaling:
   enabled: true
   minReplicas: 2

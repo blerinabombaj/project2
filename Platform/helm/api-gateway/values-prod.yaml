@@ -1,6 +1,6 @@
 # helm/api-gateway/values-prod.yaml
 image:
-  repository: REPLACE_WITH_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/platform/api-gateway
+  repository: 444062204470.dkr.ecr.us-east-1.amazonaws.com/platform/api-gateway
   tag: latest
 
 replicaCount: 2

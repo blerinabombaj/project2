@@ -37,11 +37,11 @@ spec:
 
   source:
     # Point to YOUR repository. Replace with your actual GitHub URL.
-    repoURL: https://github.com/YOUR_USERNAME/platform
+    repoURL: https://github.com/blerinabombaj/project2
     targetRevision: main   # watch the main branch
 
     # Path within the repo to the Helm chart
-    path: helm/api-gateway
+    path: Platform/helm/api-gateway
 
     helm:
       # Which values files to use — Helm merges them in order:
