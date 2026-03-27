@@ -73,7 +73,6 @@ spec:
         maxConnections: 100        # max total TCP connections to this service
       http:
         http2MaxRequests: 1000     # max concurrent HTTP/2 requests
-        pendingRequests: 100       # max queued requests when all connections are busy
 
     outlierDetection:
       consecutiveGatewayErrors: 5
@@ -104,7 +103,6 @@ spec:
         maxConnections: 100
       http:
         http2MaxRequests: 1000
-        pendingRequests: 100
 
     outlierDetection:
       consecutiveGatewayErrors: 5
