@@ -1,10 +1,10 @@
 # helm/api-gateway/templates/deployment.yaml
 #
 # This is a Helm TEMPLATE — not a plain Kubernetes manifest.
-# The {{ }} blocks are Go template syntax that Helm fills in from values.yaml.
+# The { } blocks are Go template syntax that Helm fills in from values.yaml.
 #
 # When ArgoCD runs `helm template api-gateway . -f values-dev.yaml`,
-# Helm replaces every {{ }} with the actual value and outputs a plain
+# Helm replaces every { } with the actual value and outputs a plain
 # Kubernetes manifest that kubectl can apply.
 #
 # READING THE SYNTAX:
