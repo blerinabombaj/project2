@@ -17,8 +17,8 @@ environment  = "dev"
 project_name = "platform"
 
 # EKS
-cluster_version    = "1.29"
-node_instance_type = "t3.medium"  # minimum that works well with EKS
+cluster_version    = "1.31"
+node_instance_type = "c7i-flex.large"  # minimum that works well with EKS
 node_desired_count = 2            # 1 per AZ — minimum for real workloads
 node_min_count     = 1
 node_max_count     = 3

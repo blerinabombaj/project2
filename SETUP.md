@@ -115,7 +115,7 @@ Go to: GitHub repo → Settings → Branches → Add branch protection rule
 - Branch name pattern: `main`
 - Check: Require a pull request before merging
 - Check: Require status checks to pass before merging
-  - Search and add: `Lint` and `Security scan (Trivy)`
+  - Search and add: `Lint` and `Security scan (Trivy)` ######### do thi later
 - Check: Do not allow bypassing the above settings
 - Save
 
