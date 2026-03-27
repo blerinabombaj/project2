@@ -89,7 +89,7 @@ module "eks" {
   # In a real prod setup you'd set cluster_endpoint_public_access = false
   # and access it via VPN, but for a learning project public is fine.
   vpc_id                         = module.vpc.vpc_id
-  subnet_ids                     = module.vpc.private_subnet_ids
+  subnet_ids                     = module.vpc.private_subnets
   cluster_endpoint_public_access = true
 
   # CLUSTER ADD-ONS
@@ -121,7 +121,7 @@ module "eks" {
 
       # Nodes live in private subnets — not directly internet-accessible.
       # They reach the internet via the NAT Gateway for pulling images etc.
-      subnet_ids = module.vpc.private_subnet_ids
+      subnet_ids = module.vpc.private_subnets
 
       # IAM policies attached to the node role — the minimum required for EKS nodes.
       # AmazonEKSWorkerNodePolicy    — lets the node join the cluster

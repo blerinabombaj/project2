@@ -32,9 +32,9 @@ spec:
   project: default
 
   source:
-    repoURL: https://github.com/YOUR_USERNAME/platform
+    repoURL: https://github.com/blerinabombaj/project2
     targetRevision: main
-    path: gitops/argocd   # the folder containing all Application manifests
+    path: Platform/gitops/argocd   # the folder containing all Application manifests
 
   destination:
     server: https://kubernetes.default.svc

@@ -34,7 +34,7 @@ terraform {
   #       This is a known Terraform limitation. Terragrunt (step 3) solves this.
 
   backend "s3" {
-    bucket         = "platform-terraform-state-REPLACE_WITH_ACCOUNT_ID"
+    bucket         = "platform-terraform-state-444062204470"  # name of the S3 bucket created in bootstrap/
     key            = "eks/terraform.tfstate"  # path inside the bucket
     region         = "us-east-1"
     dynamodb_table = "platform-terraform-state-lock"

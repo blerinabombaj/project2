@@ -22,7 +22,7 @@
 #   kube-system namespace so those aren't blocked.
 #
 # WHAT TO UPDATE:
-#   Replace ACCOUNT_ID and REGION with your values.
+#   Replace 444062204470 and us-east-1 with your values.
 #   The pattern uses a wildcard (*) to match any repository and tag
 #   within your registry.
 
@@ -57,7 +57,7 @@ spec:
         message: >
           Image '{{ request.object.spec.containers[].image }}' is not from
           the approved registry. All images must come from:
-          ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/platform/*
+          444062204470.dkr.ecr.us-east-1.amazonaws.com/platform/*
           Push your image to ECR via the CI pipeline first.
 
         pattern:
@@ -65,5 +65,5 @@ spec:
             containers:
               - (name): "*"
                 # image must start with your ECR registry URL.
-                # Replace ACCOUNT_ID and REGION before applying.
-                image: "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/platform/*"
+                # Replace 444062204470 and us-east-1 before applying.
+                image: "444062204470.dkr.ecr.us-east-1.amazonaws.com/platform/*"
