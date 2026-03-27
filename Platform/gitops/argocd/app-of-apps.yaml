@@ -1,0 +1,48 @@
+# gitops/argocd/app-of-apps.yaml
+#
+# THE APP OF APPS PATTERN:
+#   Instead of manually applying each Application manifest (api-gateway-dev.yaml,
+#   user-service-dev.yaml, etc.) one by one, you create ONE ArgoCD Application
+#   that points to the folder containing all the other Application manifests.
+#
+#   ArgoCD sees the Application YAMLs in gitops/argocd/ and creates them.
+#   Those applications then each manage their own Helm chart.
+#
+#   The result: you apply THIS ONE file manually, once.
+#   After that, everything else is managed by ArgoCD watching git.
+#
+#   Adding a new service = add a new Application YAML to gitops/argocd/,
+#   commit it, and ArgoCD picks it up automatically. No manual kubectl needed.
+#
+# HIERARCHY:
+#   app-of-apps (this file — applied manually once)
+#     └── api-gateway-dev    (ArgoCD creates this from git)
+#     └── user-service-dev   (ArgoCD creates this from git)
+#     └── order-service-dev  (ArgoCD creates this from git)
+#           └── (each of these manages a Helm chart in the cluster)
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-dev
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/YOUR_USERNAME/platform
+    targetRevision: main
+    path: gitops/argocd   # the folder containing all Application manifests
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd   # Application resources live in the argocd namespace
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

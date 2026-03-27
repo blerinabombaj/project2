@@ -1,0 +1,61 @@
+# gitops/istio/peer-authentication.yaml
+#
+# WHAT THIS DOES:
+#   Enforces mTLS (mutual TLS) for ALL traffic between services in the mesh.
+#   After this is applied, plain HTTP between services is rejected.
+#   Every connection must be TLS, and both sides must present a valid certificate.
+#
+# WHAT IS mTLS?
+#   Regular TLS (HTTPS in your browser) is one-way: the server proves its
+#   identity to the client with a certificate. mTLS is two-way: BOTH the
+#   client AND the server prove their identity.
+#
+#   In practice for microservices this means:
+#     - order-service proves to user-service: "I am order-service, here's my cert"
+#     - user-service proves to order-service: "I am user-service, here's my cert"
+#     - An attacker who somehow got into the network CANNOT impersonate
+#       order-service — they don't have its certificate.
+#
+# WHO MANAGES THE CERTIFICATES?
+#   Istio does — automatically. It has its own internal CA (certificate authority)
+#   called Citadel. It issues short-lived certificates to every sidecar,
+#   rotates them automatically, and handles revocation.
+#   You never manually manage TLS certificates for service-to-service traffic.
+#
+# MODES:
+#   STRICT  = mTLS required. Plain HTTP rejected. Use this in prod.
+#   PERMISSIVE = accept both mTLS and plain HTTP. Use during migration.
+#   DISABLE = no mTLS. Never use this in prod.
+#
+# We apply STRICT to all three namespaces. Since this is a greenfield
+# project (not migrating existing services), there's no reason for PERMISSIVE.
+
+# Dev namespace
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: dev
+spec:
+  mtls:
+    mode: STRICT
+---
+# Staging namespace
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: staging
+spec:
+  mtls:
+    mode: STRICT
+---
+# Prod namespace
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: prod
+spec:
+  mtls:
+    mode: STRICT

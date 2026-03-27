@@ -1,0 +1,14 @@
+# helm/api-gateway/values-staging.yaml
+image:
+  repository: REPLACE_WITH_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/platform/api-gateway
+  tag: latest
+
+replicaCount: 2   # two replicas across two AZs, same as prod topology
+
+resources:
+  requests:
+    cpu:    "200m"
+    memory: "256Mi"
+  limits:
+    cpu:    "500m"
+    memory: "512Mi"

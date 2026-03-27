@@ -1,0 +1,20 @@
+# helm/api-gateway/values-prod.yaml
+image:
+  repository: REPLACE_WITH_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/platform/api-gateway
+  tag: latest
+
+replicaCount: 2
+
+resources:
+  requests:
+    cpu:    "250m"
+    memory: "256Mi"
+  limits:
+    cpu:    "1000m"
+    memory: "512Mi"
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70

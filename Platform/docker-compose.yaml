@@ -1,0 +1,102 @@
+# docker-compose.yaml
+#
+# Defines 5 containers and wires them together on a shared network.
+# Run with: docker compose up --build
+#
+# Container map:
+#   api-gateway   :8000  <- the only container you talk to from your browser/curl
+#   user-service  :8001  <- only reachable by other containers (not exposed to host)
+#   order-service :8002  <- only reachable by other containers (not exposed to host)
+#   users-db      :5432  <- Postgres for users (exposed to host for debugging)
+#   orders-db     :5433  <- Postgres for orders (exposed to host for debugging)
+#
+# user-service and order-service have no host port mapping on purpose.
+# You can only reach them via the gateway — same model as K8s Network Policies.
+#
+# Two separate Postgres instances because each service owns its own data.
+# They share nothing at the DB level — correct microservice pattern.
+
+services:
+
+  # ── Databases ───────────────────────────────────────────────────────────────
+
+  users-db:
+    image: postgres:16-alpine         # alpine = smaller image, same Postgres
+    environment:
+      POSTGRES_DB:       usersdb
+      POSTGRES_USER:     user
+      POSTGRES_PASSWORD: password
+    volumes:
+      - users-db-data:/var/lib/postgresql/data   # persist data between restarts
+    ports:
+      - "5432:5432"   # exposed to host so you can connect with psql or TablePlus
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d usersdb"]
+      interval: 5s
+      timeout:  3s
+      retries:  5
+
+  orders-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB:       ordersdb
+      POSTGRES_USER:     user
+      POSTGRES_PASSWORD: password
+    volumes:
+      - orders-db-data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"   # mapped to 5433 on the host to avoid clashing with users-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d ordersdb"]
+      interval: 5s
+      timeout:  3s
+      retries:  5
+
+  # ── Services ─────────────────────────────────────────────────────────────────
+
+  user-service:
+    build:
+      context: ./apps/user-service
+    environment:
+      # SQLAlchemy connection string.
+      # Inside Docker's network, the hostname is the service name (users-db).
+      DATABASE_URL: postgresql://user:password@users-db:5432/usersdb
+    depends_on:
+      users-db:
+        condition: service_healthy   # wait for Postgres to be ready before starting
+    # NOT exposing a port to the host — intentional.
+    # You can only reach this from other containers in the same compose network.
+
+  order-service:
+    build:
+      context: ./apps/order-service
+    environment:
+      DATABASE_URL:     postgresql://user:password@orders-db:5432/ordersdb
+      # Tell order-service where to find user-service.
+      # Inside Docker's network the service name IS the hostname.
+      USER_SERVICE_URL: http://user-service:8001
+    depends_on:
+      orders-db:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+
+  api-gateway:
+    build:
+      context: ./apps/api-gateway
+    environment:
+      USER_SERVICE_URL:  http://user-service:8001
+      ORDER_SERVICE_URL: http://order-service:8002
+    ports:
+      - "8000:8000"   # the only container your browser/curl can reach directly
+    depends_on:
+      - user-service
+      - order-service
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+# Named volumes persist data on your Docker host even after containers are removed.
+# `docker compose down -v` removes them (useful for a clean reset).
+
+volumes:
+  users-db-data:
+  orders-db-data:

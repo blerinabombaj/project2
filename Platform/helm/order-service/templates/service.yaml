@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: order-service
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app: order-service
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.serviceAccount.name | default "order-service" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: order-service
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    {{- toYaml .Values.serviceAccount.annotations | nindent 4 }}

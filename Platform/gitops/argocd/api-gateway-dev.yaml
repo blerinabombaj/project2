@@ -1,0 +1,74 @@
+# gitops/argocd/api-gateway-dev.yaml
+#
+# An ArgoCD Application is the resource that connects a git repo path
+# to a Kubernetes namespace. It answers three questions:
+#
+#   WHERE is the config?   → spec.source (git repo + path + values file)
+#   WHERE does it deploy?  → spec.destination (cluster + namespace)
+#   HOW does it deploy?    → spec.syncPolicy (automatic or manual)
+#
+# AUTOMATED SYNC:
+#   syncPolicy.automated means ArgoCD applies changes automatically when
+#   it detects a git diff — no manual `argocd app sync` needed.
+#   This is what makes the CI pipeline's git commit become a deployment.
+#
+#   prune: true   = delete resources from the cluster if they're removed from git
+#   selfHeal: true = if someone manually changes something in the cluster,
+#                    ArgoCD reverts it back to match git within 5 minutes.
+#                    This is drift detection — git is always the source of truth.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: api-gateway-dev
+  namespace: argocd         # ArgoCD Application resources always live in the argocd namespace
+  labels:
+    environment: dev
+    service: api-gateway
+
+  # Finalizer ensures ArgoCD cleans up cluster resources when this
+  # Application is deleted. Without it, deleting the Application leaves
+  # orphaned Deployments and Services running in the cluster.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default   # ArgoCD project for RBAC grouping — use default for now
+
+  source:
+    # Point to YOUR repository. Replace with your actual GitHub URL.
+    repoURL: https://github.com/YOUR_USERNAME/platform
+    targetRevision: main   # watch the main branch
+
+    # Path within the repo to the Helm chart
+    path: helm/api-gateway
+
+    helm:
+      # Which values files to use — Helm merges them in order:
+      # values.yaml (defaults) is always loaded by Helm automatically.
+      # values-dev.yaml is loaded on top, overriding what it specifies.
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+
+  destination:
+    # In-cluster means the same cluster ArgoCD is running in.
+    # For multi-cluster setups you'd put the cluster API endpoint here.
+    server: https://kubernetes.default.svc
+    namespace: dev   # deploy into the dev namespace
+
+  syncPolicy:
+    automated:
+      prune: true       # remove resources deleted from git
+      selfHeal: true    # revert manual cluster changes back to git state
+
+    syncOptions:
+      - CreateNamespace=true   # create the dev namespace if it doesn't exist
+      - ServerSideApply=true   # use server-side apply (handles large manifests better)
+
+    retry:
+      limit: 3   # retry failed syncs up to 3 times
+      backoff:
+        duration: 10s
+        maxDuration: 3m
+        factor: 2

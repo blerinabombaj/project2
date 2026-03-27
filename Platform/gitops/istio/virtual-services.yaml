@@ -1,0 +1,117 @@
+# gitops/istio/virtual-services.yaml
+#
+# WHAT VIRTUALSERVICES DO:
+#   Define WHERE traffic goes — routing rules, retries, timeouts,
+#   and traffic splitting between subsets (e.g. 90% stable / 10% canary).
+#
+# THINK OF IT AS: a programmable load balancer sitting in front of each service.
+# Without Istio, Kubernetes routes traffic to pods randomly (round-robin).
+# With a VirtualService, you control exactly how traffic is distributed.
+#
+# THE CANARY PATTERN:
+#   A canary deployment sends a small percentage of real traffic to a new
+#   version before rolling it out to everyone. If the canary has high error
+#   rates or latency, you route back to 100% stable — zero downtime rollback.
+#
+#   Workflow:
+#     1. Deploy new version pods with label version: canary
+#     2. Set weight: 10 on canary, weight: 90 on stable
+#     3. Watch error rates and latency in Grafana (from step 1 observability)
+#     4. If healthy: gradually shift to 50/50, then 100% canary
+#     5. If broken: set weight: 0 on canary — traffic instantly back to stable
+#
+# RETRIES:
+#   Istio can automatically retry failed requests before returning an error
+#   to the caller. This handles transient failures (a pod restarting,
+#   a brief network blip) without your app code needing to implement retries.
+
+# ── api-gateway ────────────────────────────────────────────────────────────────
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: api-gateway
+  namespace: dev
+spec:
+  hosts:
+    - api-gateway    # applies to traffic going TO this Kubernetes service
+
+  http:
+    - name: primary-route
+      # Retry config: if the request fails with a 5xx or connect-failure,
+      # try again up to 3 times before giving up.
+      retries:
+        attempts: 3
+        perTryTimeout: 5s
+        retryOn: "5xx,connect-failure,reset"
+
+      timeout: 15s   # total timeout including retries
+
+      # Traffic split — currently 100% stable, ready for canary when needed.
+      # To start a canary: change to weight: 90 / weight: 10
+      route:
+        - destination:
+            host: api-gateway
+            subset: stable
+          weight: 100
+        - destination:
+            host: api-gateway
+            subset: canary
+          weight: 0
+---
+# ── user-service ───────────────────────────────────────────────────────────────
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: user-service
+  namespace: dev
+spec:
+  hosts:
+    - user-service
+
+  http:
+    - name: primary-route
+      retries:
+        attempts: 3
+        perTryTimeout: 3s
+        retryOn: "5xx,connect-failure,reset"
+
+      timeout: 10s
+
+      route:
+        - destination:
+            host: user-service
+            subset: stable
+          weight: 100
+        - destination:
+            host: user-service
+            subset: canary
+          weight: 0
+---
+# ── order-service ──────────────────────────────────────────────────────────────
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: order-service
+  namespace: dev
+spec:
+  hosts:
+    - order-service
+
+  http:
+    - name: primary-route
+      retries:
+        attempts: 3
+        perTryTimeout: 3s
+        retryOn: "5xx,connect-failure,reset"
+
+      timeout: 10s
+
+      route:
+        - destination:
+            host: order-service
+            subset: stable
+          weight: 100
+        - destination:
+            host: order-service
+            subset: canary
+          weight: 0

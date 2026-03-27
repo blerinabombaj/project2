@@ -1,0 +1,50 @@
+# gitops/istio/namespace-labels.yaml
+#
+# WHAT THIS DOES:
+#   Labels the dev/staging/prod namespaces so Istio knows to inject
+#   its Envoy sidecar proxy into every pod created there.
+#
+# HOW SIDECAR INJECTION WORKS:
+#   When you label a namespace with istio-injection: enabled, Istio
+#   registers a mutating admission webhook (similar to Kyverno from step 5).
+#   When a pod is created in that namespace, the webhook intercepts the
+#   request and modifies the pod spec to add a second container — the
+#   Envoy proxy sidecar — before the pod actually starts.
+#
+#   Your app code never knows this happened. From your FastAPI service's
+#   perspective, it's just sending HTTP to localhost. The sidecar silently
+#   intercepts that traffic and handles all the mTLS, routing, and telemetry.
+#
+# WHY NOT LABEL KUBE-SYSTEM?
+#   System components (CoreDNS, kube-proxy) don't need a service mesh.
+#   Injecting sidecars there would add overhead with no benefit and could
+#   break system networking.
+#
+# APPLY THIS BEFORE deploying your services to these namespaces.
+# If you label after pods are already running, you need to restart them
+# so the webhook can inject the sidecar.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+  labels:
+    # This label is what tells Istio to inject sidecars into all pods here.
+    istio-injection: enabled
+    environment: dev
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+  labels:
+    istio-injection: enabled
+    environment: staging
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prod
+  labels:
+    istio-injection: enabled
+    environment: prod

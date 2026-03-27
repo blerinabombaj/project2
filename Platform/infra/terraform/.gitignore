@@ -1,0 +1,19 @@
+# .gitignore for infra/terraform/
+
+# Local state files — never commit these
+# They contain plaintext secrets and are replaced by remote state anyway
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Sensitive variable files
+*.tfvars.secret
+override.tf
+override.tf.json
+
+# Lock file IS committed — it pins provider versions like package-lock.json
+# .terraform.lock.hcl  <-- do NOT gitignore this one

@@ -1,0 +1,324 @@
+# .github/workflows/ci.yaml
+#
+# This pipeline runs on every push and pull request.
+# It has 4 jobs that run in sequence (each depends on the previous):
+#
+#   lint → scan → build-push → deploy
+#
+# WHY SEQUENCE AND NOT PARALLEL?
+#   You want to fail fast and cheaply. Linting is free and instant.
+#   If lint fails, there's no point scanning or building — you'd waste
+#   5 minutes and pay for ECR storage on a broken image.
+#   Each gate is cheaper than the one after it, so we run them in order.
+#
+# WHAT IS GITHUB ACTIONS?
+#   A CI/CD platform built into GitHub. You define workflows in YAML files
+#   in .github/workflows/. GitHub runs them on their servers (called "runners")
+#   when specific events happen (push, PR, schedule, etc.).
+#   You get 2,000 free minutes/month on public repos, 500MB artifact storage.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"    # also run on feature branches so you catch issues early
+  pull_request:
+    branches:
+      - main            # always run on PRs targeting main
+
+# Cancel in-progress runs for the same branch when a new push comes in.
+# Prevents 3 parallel pipelines if you push 3 times quickly.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# These env vars are available to every job in this file.
+env:
+  AWS_REGION:   us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+
+  # ── JOB 1: Lint ─────────────────────────────────────────────────────────────
+  #
+  # Catches syntax errors and style issues before we waste time building.
+  # ruff is a fast Python linter (replaces flake8 + isort + many others).
+  # It runs in under a second on our small codebase.
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest   # GitHub-hosted runner — free Linux VM
+
+    steps:
+      # Step 1: Check out the code
+      # Without this, the runner has an empty workspace.
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip   # cache pip downloads between runs — saves ~30 seconds
+
+      # Step 3: Install ruff (the linter)
+      - name: Install ruff
+        run: pip install ruff==0.4.4
+
+      # Step 4: Run ruff on all three services
+      # --select E,F,W = check for errors, pyflakes issues, warnings
+      # Exit code > 0 = lint failed = job fails = pipeline stops here
+      - name: Lint api-gateway
+        run: ruff check apps/api-gateway/ --select E,F,W
+
+      - name: Lint user-service
+        run: ruff check apps/user-service/ --select E,F,W
+
+      - name: Lint order-service
+        run: ruff check apps/order-service/ --select E,F,W
+
+
+  # ── JOB 2: Security Scan (Trivy) ────────────────────────────────────────────
+  #
+  # Trivy scans Docker images for known CVEs (Common Vulnerabilities and Exposures).
+  # A CVE is a publicly disclosed security vulnerability in a library or OS package.
+  #
+  # WHY SCAN BEFORE PUSH, NOT AFTER?
+  #   If you push a vulnerable image to ECR and then scan it, you've already
+  #   polluted the registry. A developer might pull and deploy it before the scan
+  #   results come back. Scanning in CI — before push — means vulnerable images
+  #   never reach ECR at all.
+  #
+  # SEVERITY LEVELS:
+  #   CRITICAL — actively exploitable, patch immediately
+  #   HIGH     — serious, should fix soon
+  #   MEDIUM   — monitor, fix in next cycle
+  #   LOW      — informational
+  #
+  #   We fail on CRITICAL and HIGH. MEDIUM/LOW are reported but don't block.
+  #   This is a common real-world threshold — zero tolerance on CRITICAL/HIGH
+  #   while allowing LOW/MEDIUM keeps the pipeline unblocked by noise.
+
+  scan:
+    name: Security scan (Trivy)
+    runs-on: ubuntu-latest
+    needs: lint   # only run if lint passed
+
+    strategy:
+      # matrix lets you run the same job steps for multiple values.
+      # This runs the scan job 3 times — once per service — in parallel.
+      matrix:
+        service: [api-gateway, user-service, order-service]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Build the image locally (on the runner) so Trivy can scan it.
+      # We don't push to ECR yet — this is just for scanning.
+      - name: Build image for scanning
+        run: |
+          docker build \
+            -t ${{ matrix.service }}:scan \
+            apps/${{ matrix.service }}/
+
+      # Run Trivy against the locally built image.
+      # --exit-code 1 means: if vulnerabilities are found at this severity, exit 1 (fail).
+      # --ignore-unfixed means: don't fail for CVEs that have no fix yet
+      #   (you can't fix what doesn't have a patch — only report fixable ones).
+      - name: Run Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "${{ matrix.service }}:scan"
+          format: table        # human-readable output in the logs
+          exit-code: "1"       # fail the job if issues found
+          ignore-unfixed: true
+          severity: "CRITICAL,HIGH"
+
+      # Also output in SARIF format and upload to GitHub Security tab.
+      # This gives you a persistent record of scan results in the GitHub UI
+      # even after the job logs expire. Security tab → Code scanning alerts.
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()   # upload even if the scan failed — so you can see what failed
+        with:
+          sarif_file: trivy-results.sarif
+        continue-on-error: true   # don't fail the job if SARIF upload fails
+
+
+  # ── JOB 3: Build and push to ECR ────────────────────────────────────────────
+  #
+  # Only runs on pushes to main (not on PRs or feature branches).
+  # PRs get lint + scan but not push — you don't want every feature branch
+  # polluting ECR with images.
+  #
+  # IMAGE TAGGING STRATEGY:
+  #   We tag images with the git commit SHA (a 40-char hex string like 3a4b5c6...).
+  #   Why not "latest"?
+  #     - "latest" is mutable — anyone can overwrite it
+  #     - SHA tags are immutable — you can always trace an image back to exact code
+  #     - If a bad deploy happens, you know exactly which commit caused it
+  #     - ArgoCD reads the SHA tag from the GitOps repo and deploys that exact image
+  #
+  # This job runs for all 3 services in parallel using the same matrix pattern.
+
+  build-push:
+    name: Build and push to ECR
+    runs-on: ubuntu-latest
+    needs: scan   # only run if scan passed (and by extension, lint passed)
+
+    # Only push images on merges to main — not on PRs or feature branches
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    strategy:
+      matrix:
+        service: [api-gateway, user-service, order-service]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Configure AWS credentials from GitHub Secrets.
+      # This action sets up the AWS CLI with the credentials so subsequent
+      # steps can call AWS APIs (ECR login, push, etc.) without hardcoding keys.
+      #
+      # NEVER hardcode AWS keys in workflow files — they'd be committed to git
+      # and visible to anyone who forks the repo.
+      # Instead: GitHub repo → Settings → Secrets and variables → Actions
+      # Add: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ACCOUNT_ID
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      # Log Docker into ECR.
+      # ECR requires a token that expires every 12 hours. This action
+      # fetches a fresh token and runs `docker login` with it automatically.
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Build the image and push it with two tags:
+      #   1. The full git SHA      — for precise version tracking
+      #   2. Short SHA (7 chars)   — easier to read in logs and kubectl output
+      #
+      # github.sha is the full 40-char commit hash.
+      # We take the first 7 chars for the short version.
+      - name: Build and push
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          SHORT_TAG: ${{ github.sha[:7] }}
+          REPO:      ${{ env.ECR_REGISTRY }}/platform/${{ matrix.service }}
+        run: |
+          docker build \
+            -t $REPO:$IMAGE_TAG \
+            -t $REPO:${IMAGE_TAG:0:7} \
+            apps/${{ matrix.service }}/
+
+          docker push $REPO:$IMAGE_TAG
+          docker push $REPO:${IMAGE_TAG:0:7}
+
+          # Write the image tag to a file so the deploy job can read it.
+          # Jobs don't share environment variables — files in the workspace do.
+          echo "${IMAGE_TAG:0:7}" > /tmp/image-tag-${{ matrix.service }}.txt
+
+      # Save the image tag file as an artifact so the deploy job can access it.
+      # GitHub Actions artifacts are shared between jobs in the same workflow run.
+      - name: Save image tag
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-tag-${{ matrix.service }}
+          path: /tmp/image-tag-${{ matrix.service }}.txt
+
+
+  # ── JOB 4: Deploy (update GitOps repo) ──────────────────────────────────────
+  #
+  # This is where GitOps actually happens.
+  #
+  # THE PATTERN:
+  #   We don't run `kubectl apply` or `helm upgrade` directly from CI.
+  #   Instead, we update a value in the GitOps repo (the image tag in a Helm values file).
+  #   ArgoCD is watching that repo and detects the change.
+  #   ArgoCD then applies the change to the cluster.
+  #
+  # WHY NOT KUBECTL FROM CI?
+  #   - CI runners are ephemeral — no persistent kubeconfig, no cluster access by default
+  #   - GitOps keeps a full audit trail: every deploy is a git commit
+  #   - You can roll back any deploy with `git revert` — no kubectl magic required
+  #   - ArgoCD can detect and fix drift — if someone manually changes something
+  #     in the cluster, ArgoCD reverts it to match the git state
+  #
+  # WHAT THIS JOB ACTUALLY DOES:
+  #   1. Checks out the GitOps repo (or the gitops/ folder in this repo)
+  #   2. Updates the image tag in helm/SERVICE/values-dev.yaml
+  #   3. Commits and pushes
+  #   4. ArgoCD detects the git change and syncs the cluster
+
+  deploy:
+    name: Deploy to dev (GitOps)
+    runs-on: ubuntu-latest
+    needs: build-push
+
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    strategy:
+      # Run deploys sequentially — not in parallel — to avoid git push conflicts
+      max-parallel: 1
+      matrix:
+        service: [api-gateway, user-service, order-service]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # We need to push back to the repo, so we need a token with write access.
+          # GITHUB_TOKEN has write access to the current repo by default.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Download the image tag artifact saved by the build-push job.
+      - name: Download image tag
+        uses: actions/download-artifact@v4
+        with:
+          name: image-tag-${{ matrix.service }}
+          path: /tmp/
+
+      # Read the image tag from the artifact file into an env var.
+      - name: Read image tag
+        run: |
+          TAG=$(cat /tmp/image-tag-${{ matrix.service }}.txt)
+          echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
+
+      # Update the image tag in the Helm values file for dev.
+      # sed -i does an in-place find-and-replace:
+      #   Find:    tag: <anything>
+      #   Replace: tag: <new SHA>
+      #
+      # This is the commit that ArgoCD watches for.
+      - name: Update image tag in GitOps values
+        run: |
+          sed -i "s|tag:.*|tag: ${{ env.IMAGE_TAG }}|g" \
+            helm/${{ matrix.service }}/values-dev.yaml
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add helm/${{ matrix.service }}/values-dev.yaml
+          git diff --staged --quiet || git commit -m \
+            "chore: deploy ${{ matrix.service }} ${{ env.IMAGE_TAG }} to dev [skip ci]"
+
+          # [skip ci] in the commit message tells GitHub Actions not to
+          # trigger another pipeline run for this commit — prevents infinite loops.
+
+      # Push all service updates together (retrying if there's a race condition
+      # between parallel matrix jobs trying to push at the same time).
+      - name: Push GitOps changes
+        run: |
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && break
+            echo "Push failed, retrying in 5s..."
+            sleep 5
+          done

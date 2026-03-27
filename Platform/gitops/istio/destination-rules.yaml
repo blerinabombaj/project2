@@ -1,0 +1,121 @@
+# gitops/istio/destination-rules.yaml
+#
+# WHAT DESTINATIONRULES DO:
+#   Define HOW traffic is sent to a service — connection pooling, circuit breaking,
+#   load balancing algorithm, and TLS settings for outbound connections.
+#
+# THINK OF IT AS: rules that apply when you are the CALLER of a service.
+# PeerAuthentication = rules for INCOMING traffic.
+# DestinationRule    = rules for OUTGOING traffic to a specific destination.
+#
+# TWO IMPORTANT FEATURES HERE:
+#
+# 1. TRAFFIC SUBSETS (for canary deployments):
+#    A subset maps a label selector to a named group of pods.
+#    VirtualServices (next file) use these names to split traffic.
+#    e.g. subset "stable" = pods with version: stable label
+#         subset "canary" = pods with version: canary label
+#
+# 2. CIRCUIT BREAKER (outlierDetection):
+#    If a pod starts returning errors, Istio automatically stops
+#    sending traffic to it for a period of time.
+#    Without a circuit breaker: a slow/broken pod keeps receiving traffic,
+#    backing up queues and degrading the entire service.
+#    With a circuit breaker: broken pod is ejected, traffic goes to healthy pods.
+#
+#    consecutiveGatewayErrors: 5  = eject after 5 consecutive 5xx errors
+#    interval: 30s                = check every 30 seconds
+#    baseEjectionTime: 30s        = eject for at least 30 seconds
+#    maxEjectionPercent: 50       = never eject more than 50% of pods
+#      (keeps at least half the pool running even under failure)
+
+# ── api-gateway ────────────────────────────────────────────────────────────────
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: api-gateway
+  namespace: dev
+spec:
+  host: api-gateway   # matches the Kubernetes Service name
+
+  trafficPolicy:
+    outlierDetection:
+      consecutiveGatewayErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+
+  # Subsets for canary deployments.
+  # When you deploy a new version, label the new pods version: canary
+  # and route a percentage of traffic to them via VirtualService.
+  subsets:
+    - name: stable
+      labels:
+        version: stable
+    - name: canary
+      labels:
+        version: canary
+---
+# ── user-service ───────────────────────────────────────────────────────────────
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: user-service
+  namespace: dev
+spec:
+  host: user-service
+
+  trafficPolicy:
+    # Connection pool limits — prevents one slow upstream from holding
+    # too many connections open and starving other services.
+    connectionPool:
+      tcp:
+        maxConnections: 100        # max total TCP connections to this service
+      http:
+        http2MaxRequests: 1000     # max concurrent HTTP/2 requests
+        pendingRequests: 100       # max queued requests when all connections are busy
+
+    outlierDetection:
+      consecutiveGatewayErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+
+  subsets:
+    - name: stable
+      labels:
+        version: stable
+    - name: canary
+      labels:
+        version: canary
+---
+# ── order-service ──────────────────────────────────────────────────────────────
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: order-service
+  namespace: dev
+spec:
+  host: order-service
+
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        http2MaxRequests: 1000
+        pendingRequests: 100
+
+    outlierDetection:
+      consecutiveGatewayErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+
+  subsets:
+    - name: stable
+      labels:
+        version: stable
+    - name: canary
+      labels:
+        version: canary

@@ -1,0 +1,68 @@
+# helm/user-service/values.yaml
+
+image:
+  repository: ""
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 8001
+  targetPort: 8001
+
+env:
+  DATABASE_URL: "postgresql://user:password@users-db:5432/usersdb"
+  # In production this is replaced by External Secrets Operator pulling
+  # the real password from AWS Secrets Manager — no hardcoded credentials.
+
+resources:
+  requests:
+    cpu:    "100m"
+    memory: "128Mi"
+  limits:
+    cpu:    "500m"
+    memory: "256Mi"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8001
+  initialDelaySeconds: 15   # longer delay — service needs DB to be ready first
+  periodSeconds: 15
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8001
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  failureThreshold: 3
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # For IRSA, this will be set in values-prod.yaml to the IAM role ARN
+  # that allows reading from Secrets Manager:
+  # annotations:
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/user-service-secrets-role
+
+version: stable
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70

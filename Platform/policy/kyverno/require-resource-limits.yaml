@@ -1,0 +1,67 @@
+# policy/kyverno/require-resource-limits.yaml
+#
+# WHAT THIS POLICY DOES:
+#   Blocks any pod where a container doesn't declare CPU and memory limits.
+#
+# WHY THIS MATTERS:
+#   Without limits, one misbehaving container can consume all CPU and memory
+#   on a node — starving every other pod on that node. This is called the
+#   "noisy neighbour" problem.
+#
+#   Kubernetes uses limits to enforce isolation between pods. The scheduler
+#   also uses requests (the minimum guaranteed) to decide which node to
+#   place a pod on. Without requests/limits, scheduling becomes guesswork.
+#
+#   Real example: a memory leak in one service with no limits will OOMKill
+#   other pods on the same node. With limits, only the leaking pod dies.
+#
+# WHAT IT CHECKS:
+#   Every container must set:
+#     resources.requests.cpu
+#     resources.requests.memory
+#     resources.limits.cpu
+#     resources.limits.memory
+#
+# NOTE ON VALUES:
+#   Kubernetes uses millicores for CPU: 100m = 0.1 core, 1000m = 1 core.
+#   Memory uses Mi (mebibytes) or Gi. "128Mi" = 134MB.
+#   These are already set in our helm values-dev.yaml files from step 4.
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+  annotations:
+    policies.kyverno.io/title: Require resource limits
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >
+      All containers must specify CPU and memory requests and limits
+      to prevent resource exhaustion and enable proper scheduling.
+spec:
+  validationFailureAction: Enforce
+  background: true
+
+  rules:
+    - name: check-container-resources
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: >
+          Container '{{ request.object.metadata.name }}' must specify
+          resources.requests and resources.limits for both cpu and memory.
+          See helm/SERVICE/values-dev.yaml for examples.
+
+        pattern:
+          spec:
+            containers:
+              - (name): "*"
+                resources:
+                  requests:
+                    memory: "?*"   # ?* means: must be present and non-empty
+                    cpu:    "?*"
+                  limits:
+                    memory: "?*"
+                    cpu:    "?*"

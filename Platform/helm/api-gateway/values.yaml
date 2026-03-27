@@ -1,0 +1,94 @@
+# helm/api-gateway/values.yaml
+#
+# These are the DEFAULT values for the chart.
+# Environment-specific files (values-dev.yaml, values-prod.yaml) OVERRIDE
+# only the fields they need to change. Everything else comes from here.
+#
+# Helm merges them: defaults + overrides = final config.
+# Running `helm template . -f values-dev.yaml` shows the merged result.
+
+image:
+  repository: "" # set in values-dev/staging/prod.yaml — must be overridden
+  tag: latest
+  pullPolicy: IfNotPresent
+  # IfNotPresent = only pull if the image isn't already on the node.
+  # Always = always pull (use for mutable tags like "latest" — but we use SHA tags)
+  # Never  = never pull (for pre-loaded images)
+
+replicaCount: 1
+
+# Service defines how pods are exposed inside the cluster.
+# ClusterIP = only reachable from within the cluster (correct for internal services).
+# The Istio Gateway handles external access — we don't need a LoadBalancer here.
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000  # the port your FastAPI app listens on inside the container
+
+# Environment variables passed into the container.
+# These map to the os.getenv() calls in your Python code.
+env:
+  USER_SERVICE_URL:  "http://user-service:8001"
+  ORDER_SERVICE_URL: "http://order-service:8002"
+
+# Resource requests and limits.
+# Required by our Kyverno policy from step 5.
+# requests = guaranteed minimum (used by scheduler to pick a node)
+# limits   = hard ceiling (container is OOMKilled if it exceeds memory limit)
+resources:
+  requests:
+    cpu:    "100m"
+    memory: "128Mi"
+  limits:
+    cpu:    "500m"
+    memory: "256Mi"
+
+# Liveness probe: if this fails, Kubernetes restarts the container.
+# Use for detecting a stuck/deadlocked process.
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 10  # wait 10s after container starts before checking
+  periodSeconds: 15
+  failureThreshold: 3       # restart after 3 consecutive failures
+
+# Readiness probe: if this fails, the pod is removed from the Service endpoints.
+# Traffic stops going to it, but it's not restarted. Use for "not ready yet".
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
+# SecurityContext enforces our Kyverno no-root-containers policy.
+# Every container must run as non-root.
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000       # arbitrary non-root UID
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true  # container filesystem is read-only
+  capabilities:
+    drop:
+      - ALL   # drop all Linux capabilities — principle of least privilege
+
+# ServiceAccount is used for IRSA (IAM Roles for Service Accounts).
+# The API gateway doesn't need AWS access, so annotations are empty here.
+# user-service and order-service will have IAM role ARNs annotated here.
+serviceAccount:
+  create: true
+  name: ""          # if empty, Helm generates one from the chart name
+  annotations: {}   # IRSA annotation goes here for services that need AWS access
+
+# Istio version label — used by DestinationRule subsets from step 6.
+# Set to "stable" by default. CI sets to the git SHA for canary deployments.
+version: stable
+
+# Autoscaling (disabled by default — enable when you need it)
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70

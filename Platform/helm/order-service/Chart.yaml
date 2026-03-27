@@ -1,0 +1,6 @@
+apiVersion: v2
+name: order-service
+description: Order service — owns all order data, calls user-service to validate users
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

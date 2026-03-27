@@ -1,0 +1,116 @@
+# helm/api-gateway/templates/deployment.yaml
+#
+# This is a Helm TEMPLATE — not a plain Kubernetes manifest.
+# The {{ }} blocks are Go template syntax that Helm fills in from values.yaml.
+#
+# When ArgoCD runs `helm template api-gateway . -f values-dev.yaml`,
+# Helm replaces every {{ }} with the actual value and outputs a plain
+# Kubernetes manifest that kubectl can apply.
+#
+# READING THE SYNTAX:
+#   {{ .Values.X }}           = value from values.yaml
+#   {{ .Release.Name }}       = the Helm release name (set when ArgoCD installs)
+#   {{ include "X" . }}       = call a named template (defined in _helpers.tpl)
+#   {{- if .Values.X }}       = conditional block (the - trims whitespace)
+#   {{ toYaml .Values.X | nindent 8 }}  = convert to YAML and indent 8 spaces
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: api-gateway
+    version: {{ .Values.version }}
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: {{ .Values.replicaCount }}
+
+  selector:
+    matchLabels:
+      app: api-gateway
+      version: {{ .Values.version }}
+
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+        version: {{ .Values.version }}
+      annotations:
+        # This annotation forces a rolling restart when the ConfigMap or Secret
+        # changes. Without it, pods keep running with old config after a values update.
+        checksum/config: {{ toJson .Values.env | sha256sum }}
+
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name | default "api-gateway" }}
+
+      # Pod-level security context
+      securityContext:
+        runAsNonRoot: {{ .Values.securityContext.runAsNonRoot }}
+        runAsUser: {{ .Values.securityContext.runAsUser }}
+
+      containers:
+        - name: api-gateway
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+
+          # Container-level security context — satisfies Kyverno policy
+          securityContext:
+            allowPrivilegeEscalation: {{ .Values.securityContext.allowPrivilegeEscalation }}
+            readOnlyRootFilesystem: {{ .Values.securityContext.readOnlyRootFilesystem }}
+            capabilities:
+              drop: {{ toYaml .Values.securityContext.capabilities.drop | nindent 16 }}
+
+          # Environment variables from values.yaml env block.
+          # The range iterates over the map and creates one env entry per key.
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+
+          # Health probes — Kubernetes uses these to manage pod lifecycle.
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.httpGet.path }}
+              port: {{ .Values.livenessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.httpGet.path }}
+              port: {{ .Values.readinessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+
+          resources:
+            requests:
+              cpu:    {{ .Values.resources.requests.cpu | quote }}
+              memory: {{ .Values.resources.requests.memory | quote }}
+            limits:
+              cpu:    {{ .Values.resources.limits.cpu | quote }}
+              memory: {{ .Values.resources.limits.memory | quote }}
+
+      # Topology spread: distribute pods evenly across availability zones.
+      # Prevents all pods landing on one node (single point of failure).
+      # whenUnsatisfiable: ScheduleAnyway = soft preference, not hard requirement.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: api-gateway
+
+      # Graceful shutdown: wait 30s for in-flight requests to complete
+      # before the pod is terminated. Without this, active requests get
+      # dropped mid-flight during rolling updates.
+      terminationGracePeriodSeconds: 30

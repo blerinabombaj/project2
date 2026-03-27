@@ -1,0 +1,97 @@
+# gitops/istio/gateway.yaml
+#
+# WHAT THE GATEWAY DOES:
+#   Defines the single entry point into your service mesh from the outside world.
+#   It replaces the Kubernetes Ingress resource with something Istio controls.
+#
+# GATEWAY vs KUBERNETES INGRESS:
+#   A Kubernetes Ingress is a basic HTTP router — it maps URLs to services.
+#   An Istio Gateway is more powerful:
+#     - Full TLS termination with certificate management
+#     - Protocol detection (HTTP/1.1, HTTP/2, gRPC)
+#     - Integrates with VirtualService routing rules
+#     - Works with the same mTLS and observability as the rest of the mesh
+#
+# HOW IT WORKS WITH VIRTUALSERVICE:
+#   Gateway  = defines the door (which port/protocol/host to accept)
+#   VirtualService = defines where traffic goes after walking through the door
+#
+#   Traffic flow:
+#     Internet → AWS Load Balancer → Istio Gateway pod → VirtualService routing → api-gateway pod
+#
+# TLS:
+#   In this config we terminate TLS at the gateway (HTTPS in, HTTP inside the mesh).
+#   Inside the mesh, all traffic is already mTLS-encrypted by Istio automatically.
+#   So "HTTP" inside the mesh is actually encrypted — just not at the app layer.
+
+# The Gateway resource — the "door"
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: platform-gateway
+  namespace: dev
+spec:
+  # istio: ingressgateway refers to the Istio ingress gateway pod that was
+  # installed with Istio. It's the actual running proxy that receives traffic.
+  selector:
+    istio: ingressgateway
+
+  servers:
+    # HTTP on port 80 — redirects to HTTPS
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "*"   # accept traffic for any hostname (change to your domain in prod)
+      tls:
+        httpsRedirect: true   # redirect all HTTP to HTTPS
+
+    # HTTPS on port 443 — actual traffic
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      hosts:
+        - "*"
+      tls:
+        mode: SIMPLE   # TLS termination at the gateway
+        # For a real domain, reference a Kubernetes Secret containing your TLS cert:
+        # credentialName: platform-tls-cert
+        # For local testing without a cert, change mode to PASSTHROUGH
+        # or switch the http server to not redirect.
+        credentialName: platform-tls-cert   # create this Secret with your cert
+---
+# VirtualService that ties the Gateway to the api-gateway service.
+# This is a separate VirtualService from the internal one —
+# this one handles EXTERNAL traffic coming through the Gateway.
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: platform-ingress
+  namespace: dev
+spec:
+  hosts:
+    - "*"
+
+  # Bind this VirtualService to the Gateway we defined above.
+  # Without this, the VirtualService only applies to internal mesh traffic.
+  gateways:
+    - platform-gateway
+
+  http:
+    # Route all external traffic to the api-gateway service.
+    # The api-gateway then handles routing internally to user-service
+    # and order-service — same as in Docker Compose.
+    - match:
+        - uri:
+            prefix: /users
+        - uri:
+            prefix: /orders
+        - uri:
+            prefix: /health
+      route:
+        - destination:
+            host: api-gateway
+            port:
+              number: 8000

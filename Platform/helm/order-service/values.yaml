@@ -1,0 +1,61 @@
+image:
+  repository: ""
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 8002
+  targetPort: 8002
+
+env:
+  DATABASE_URL:     "postgresql://user:password@orders-db:5432/ordersdb"
+  USER_SERVICE_URL: "http://user-service:8001"
+
+resources:
+  requests:
+    cpu:    "100m"
+    memory: "128Mi"
+  limits:
+    cpu:    "500m"
+    memory: "256Mi"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8002
+  initialDelaySeconds: 15
+  periodSeconds: 15
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8002
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  failureThreshold: 3
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+version: stable
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70

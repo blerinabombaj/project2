@@ -1,0 +1,12 @@
+image:
+  repository: REPLACE_WITH_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/platform/user-service
+  tag: latest
+replicaCount: 2
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::REPLACE_WITH_ACCOUNT_ID:role/user-service-secrets-role
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70

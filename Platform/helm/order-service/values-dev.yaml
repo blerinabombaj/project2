@@ -1,0 +1,4 @@
+image:
+  repository: REPLACE_WITH_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/platform/order-service
+  tag: latest
+replicaCount: 1

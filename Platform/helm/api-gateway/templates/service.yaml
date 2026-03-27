@@ -1,0 +1,50 @@
+# helm/api-gateway/templates/service.yaml
+#
+# The Kubernetes Service gives the Deployment a stable DNS name and IP
+# inside the cluster. Pods come and go (they get new IPs on restart),
+# but the Service IP stays constant.
+#
+# Inside the cluster: http://api-gateway:8000 always resolves, regardless
+# of how many pods are running or what their IPs are.
+# Kubernetes/Istio handles the load balancing across pods automatically.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: api-gateway
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    # These labels must match the pod labels in deployment.yaml.
+    # The Service routes traffic to any pod that matches ALL of these.
+    app: api-gateway
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP
+---
+# ServiceAccount gives the pod an identity within the cluster.
+# For IRSA (IAM Roles for Service Accounts), we annotate this with
+# the IAM role ARN so pods can assume AWS roles without static credentials.
+# api-gateway doesn't need AWS access, but the pattern is set up here
+# so user-service and order-service can use it for Secrets Manager access.
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.serviceAccount.name | default "api-gateway" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: api-gateway
+    app.kubernetes.io/managed-by: Helm
+  # IRSA annotation: when this is set, pods using this ServiceAccount can
+  # assume the specified IAM role via the EKS OIDC provider.
+  # For api-gateway this is empty. For user-service it will be set to
+  # the ARN of a role that can read from Secrets Manager.
+  annotations:
+    {{- toYaml .Values.serviceAccount.annotations | nindent 4 }}

@@ -1,0 +1,85 @@
+# policy/kyverno/no-root-containers.yaml
+#
+# WHAT THIS POLICY DOES:
+#   Blocks any pod where a container runs as root (uid 0).
+#
+# WHY THIS MATTERS:
+#   If a container runs as root and an attacker exploits a vulnerability
+#   in your app, they get a root shell inside the container. Combined with
+#   a container escape vulnerability, that becomes root on the HOST NODE —
+#   full cluster compromise.
+#
+#   Running as a non-root user means an attacker who exploits your app
+#   gets a low-privilege shell. They still have a problem, but it's
+#   a much smaller one.
+#
+# WHAT IT CHECKS:
+#   1. securityContext.runAsNonRoot must be true
+#   2. securityContext.runAsUser must not be 0
+#   Checks at both pod level and individual container level.
+#
+# KIND: ClusterPolicy = applies to ALL namespaces.
+#       Use Policy (no "Cluster" prefix) to scope to one namespace.
+#
+# validationFailureAction:
+#   "Enforce" = BLOCK the request (hard gate — nothing gets through)
+#   "Audit"   = ALLOW but LOG the violation (soft gate — for gradual rollout)
+#
+#   Start with Audit to see what would fail, then switch to Enforce
+#   once you've fixed all existing violations. We use Enforce here
+#   because this project starts clean.
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: no-root-containers
+  annotations:
+    policies.kyverno.io/title: No root containers
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >
+      Containers must not run as root. All containers must set
+      runAsNonRoot: true or specify a runAsUser greater than 0.
+spec:
+  validationFailureAction: Enforce
+
+  # background: true = also scan existing resources, not just new ones.
+  # Kyverno will flag existing pods that violate this policy.
+  background: true
+
+  rules:
+    - name: check-runAsNonRoot
+      # match defines which resources this rule applies to.
+      # We're matching Pod resources across all namespaces.
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: >
+          Containers must not run as root.
+          Set securityContext.runAsNonRoot: true
+          or securityContext.runAsUser > 0.
+
+        # pattern defines what a VALID resource looks like.
+        # Kyverno rejects anything that doesn't match this pattern.
+        # The ^ prefix on a value means "not equal to".
+        pattern:
+          spec:
+            # Check pod-level securityContext
+            =(securityContext):
+              =(runAsUser): ">0"
+
+            containers:
+              # The (name): "*" pattern means: apply to every container
+              - (name): "*"
+                =(securityContext):
+                  =(runAsNonRoot): true
+                  =(runAsUser): ">0"
+
+            # Also check initContainers if present
+            =(initContainers):
+              - (name): "*"
+                =(securityContext):
+                  =(runAsNonRoot): true
+                  =(runAsUser): ">0"

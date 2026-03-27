@@ -1,0 +1,69 @@
+# policy/kyverno/require-trusted-registry.yaml
+#
+# WHAT THIS POLICY DOES:
+#   Blocks any pod that pulls an image from outside your ECR registry.
+#
+# WHY THIS MATTERS:
+#   Without this, anyone with kubectl access can deploy:
+#     image: hacker/cryptominer:latest   (from Docker Hub)
+#   and your cluster will happily run it.
+#
+#   By restricting images to YOUR ECR registry, you enforce that:
+#     1. Every image went through your CI pipeline (lint + Trivy scan)
+#     2. Every image is in a registry you control and can audit
+#     3. No one can sneak in unscanned third-party images
+#
+#   This is sometimes called "supply chain security" — controlling what
+#   software actually runs in your cluster.
+#
+# EXCEPTIONS:
+#   System components (CoreDNS, kube-proxy, Kyverno itself) come from
+#   registries like registry.k8s.io and ghcr.io. We exclude the
+#   kube-system namespace so those aren't blocked.
+#
+# WHAT TO UPDATE:
+#   Replace ACCOUNT_ID and REGION with your values.
+#   The pattern uses a wildcard (*) to match any repository and tag
+#   within your registry.
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-trusted-registry
+  annotations:
+    policies.kyverno.io/title: Require trusted image registry
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >
+      All container images must come from the approved ECR registry.
+      Images from Docker Hub or other public registries are not permitted.
+spec:
+  validationFailureAction: Enforce
+  background: true
+
+  rules:
+    - name: check-image-registry
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              # Apply to all namespaces EXCEPT kube-system and kyverno itself,
+              # since system components use public registries.
+              namespaces:
+                - "dev"
+                - "staging"
+                - "prod"
+      validate:
+        message: >
+          Image '{{ request.object.spec.containers[].image }}' is not from
+          the approved registry. All images must come from:
+          ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/platform/*
+          Push your image to ECR via the CI pipeline first.
+
+        pattern:
+          spec:
+            containers:
+              - (name): "*"
+                # image must start with your ECR registry URL.
+                # Replace ACCOUNT_ID and REGION before applying.
+                image: "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/platform/*"

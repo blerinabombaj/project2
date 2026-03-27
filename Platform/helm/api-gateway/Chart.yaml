@@ -1,0 +1,16 @@
+# helm/api-gateway/Chart.yaml
+#
+# Every Helm chart needs this file — it's the chart's identity card.
+# Helm uses it to version the chart itself (separate from the app version).
+#
+# Chart version vs App version:
+#   version     = the chart's version. Bump this when you change the templates.
+#   appVersion  = the app's version. Informational only — the actual image
+#                 tag is controlled by values.yaml, not this field.
+
+apiVersion: v2
+name: api-gateway
+description: API Gateway service — public-facing router for the platform
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
